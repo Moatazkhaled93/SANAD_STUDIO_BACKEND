@@ -1,0 +1,17 @@
+.git
+.github
+.gitignore
+.env
+.env.*
+!.env.production
+node_modules
+npm-debug.log
+tests
+phpunit.xml
+.phpunit.result.cache
+README.md
+docker-compose.yml
+storage/logs/*
+storage/framework/cache/*
+storage/framework/sessions/*
+storage/framework/views/*

@@ -1,0 +1,85 @@
+name: Deploy to Sanad Studio Production
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+
+    - name: Setup PHP
+      uses: shivammathur/setup-php@v2
+      with:
+        php-version: '8.2'
+        extensions: mbstring, dom, fileinfo, mysql, zip, bcmath, gd
+
+    - name: Install Dependencies
+      run: composer install --no-dev --optimize-autoloader --no-interaction
+
+    - name: Create production environment file
+      run: cp .env.production .env
+
+    - name: Deploy to cPanel via FTP
+      uses: SamKirkland/FTP-Deploy-Action@v4.3.4
+      with:
+        server: ${{ secrets.FTP_SERVER }}
+        username: ${{ secrets.FTP_USERNAME }}
+        password: ${{ secrets.FTP_PASSWORD }}
+        local-dir: ./
+        server-dir: /public_html/backend/
+        exclude: |
+          **/.git*
+          **/.git*/**
+          **/node_modules/**
+          **/tests/**
+          **/.env.example
+          **/phpunit.xml
+          **/package*.json
+          **/vite.config.js
+          **/docker*
+          **/*.md
+          **/storage/logs/*
+          **/storage/framework/cache/*
+          **/storage/framework/sessions/*
+          **/storage/framework/views/*
+
+    - name: Execute deployment commands via SSH
+      uses: appleboy/ssh-action@v1.0.3
+      with:
+        host: ${{ secrets.FTP_SERVER }}
+        username: ${{ secrets.FTP_USERNAME }}
+        password: ${{ secrets.FTP_PASSWORD }}
+        script: |
+          cd /home/sanad/public_html/backend
+
+          # Set proper permissions
+          chmod -R 755 storage bootstrap/cache
+
+          # Generate application key if not exists
+          php artisan key:generate --force
+
+          # Run migrations
+          php artisan migrate --force
+
+          # Install Passport keys (first time only)
+          if [ ! -f "storage/oauth-public.key" ]; then
+            php artisan passport:install --force
+          fi
+
+          # Seed database (only on first deployment)
+          USER_COUNT=$(php artisan tinker --execute="echo App\\Models\\User::count();" 2>/dev/null | tail -1 || echo "0")
+          if [ "$USER_COUNT" -eq "0" ]; then
+            php artisan db:seed --force
+          fi
+
+          # Clear and cache configuration
+          php artisan config:cache
+          php artisan route:cache
+
+          # Generate API documentation
+          php artisan l5-swagger:generate
